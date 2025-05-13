@@ -3,6 +3,7 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, ReactionTypeEmoji
+from aiohttp import web
 
 # === Настройки из .env или Render.env ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -13,6 +14,13 @@ INFO_TOPIC_ID = int(os.getenv("INFO_TOPIC_ID"))
 # === Бот ===
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# === Фиктивный веб-сервер для Render ===
+async def handle(request):
+    return web.Response(text="Hello, world")
+
+app = web.Application()
+app.router.add_get("/", handle)
 
 # === Команда /fb — отправляет фидбек в группу админов ===
 @dp.message(Command("fb"))
@@ -131,4 +139,13 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Запуск фиктивного веб-сервера
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+
+    print("✅ Веб-сервер запущен на порту 8080")
+
+    # Запуск Telegram-бота
     asyncio.run(main())
