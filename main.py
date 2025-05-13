@@ -17,10 +17,11 @@ dp = Dispatcher()
 
 # === Фиктивный веб-сервер для Render ===
 async def handle(request):
-    return web.Response(text="Hello, world")
+    return web.Response(text="Bot is running")
 
 app = web.Application()
 app.router.add_get("/", handle)
+
 
 # === Команда /fb — отправляет фидбек в группу админов ===
 @dp.message(Command("fb"))
@@ -132,20 +133,26 @@ async def get_admins(chat_id):
         return set()
 
 
-# === Запуск бота ===
-async def main():
+# === Запуск бота и сервера ===
+async def start_bot():
     print("✅ Бот запущен")
     await dp.start_polling(bot)
 
 
-if __name__ == "__main__":
-    # Запуск фиктивного веб-сервера
+async def start_server():
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
+    print("🌐 Веб-сервер запущен на порту 8080")
 
-    print("✅ Веб-сервер запущен на порту 8080")
 
-    # Запуск Telegram-бота
-    asyncio.run(main())
+async def run():
+    await asyncio.gather(
+        start_bot(),
+        start_server()
+    )
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
