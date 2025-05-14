@@ -1,116 +1,90 @@
 import os
 import asyncio
-import threading
-import time
 import logging
 from aiogram import Bot, Dispatcher
-from aiogram.filters import Command, F
-from aiogram.types import Message, ReactionTypeEmoji, ContentType
-from flask import Flask
-from dotenv import load_dotenv
+from aiogram.filters import Command
+from aiogram.types import Message, ReactionTypeEmoji
 
 # === Настройки из переменных среды ===
-load_dotenv()
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_ID = int(os.getenv("GROUP_ID"))
 FEEDBACK_CHAT_ID = int(os.getenv("FEEDBACK_CHAT_ID"))
-INFO_TOPIC_ID = int(os.getenv("INFO_TOPIC_ID"))
-ALLOWED_FB_TOPIC_ID = int(os.getenv("ALLOWED_FB_TOPIC_ID", -1))  # topic_id для /fb
+ALLOWED_FB_TOPIC_ID = int(os.getenv("ALLOWED_FB_TOPIC_ID"))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-app = Flask(__name__)
 
 # === Логирование ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === Flask сервер для keep-alive запросов ===
-@app.route('/')
-def home():
-    return "Бот работает!"
-
-# === Функция keep-alive ===
-def keep_alive_loop():
-    while True:
-        try:
-            requests.get(f"https://{os.getenv('REPL_SLUG')}.{os.getenv('REPL_OWNER')}.replit.dev")
-        except Exception as e:
-            logger.error(f"❌ Ошибка keep-alive: {e}")
-        time.sleep(60)  # Пинг каждую минуту
-
 # === Команда /fb — принимает текст и медиа ===
 @dp.message(Command("fb"))
 async def handle_feedback(message: Message):
+    # Проверяем, что сообщение в нужной группе и топике
     if message.chat.id != GROUP_ID or message.message_thread_id != ALLOWED_FB_TOPIC_ID:
         return
 
     user = message.from_user
-
-    caption = f"""
+    media_caption = f"""
 📥 <b>Новый фидбек</b>
 
-👤 Пользователь: {user.full_name} (@{user.username} | ID: {user.id})
-📌 Время: {message.date.strftime('%Y-%m-%d %H:%M')}
+👤 Отправитель: {user.full_name} (@{user.username} | ID: {user.id})
+📌 Время отправки: {message.date.strftime('%Y-%m-%d %H:%M')}
 """
 
-    # Если есть медиа — пересылаем как медиагруппу или отдельное сообщение
-    if message.media_group_id:
-        await message.reply("⚠️ Поддержка медиагрупп временно недоступна")
-        return
-
-    if message.photo:
-        photo = message.photo[-1]  # Берём самое большое фото
-        await bot.send_photo(
-            chat_id=FEEDBACK_CHAT_ID,
-            photo=photo.file_id,
-            caption=caption,
-            parse_mode="HTML"
-        )
-
-    elif message.video:
-        video = message.video
-        await bot.send_video(
-            chat_id=FEEDBACK_CHAT_ID,
-            video=video.file_id,
-            caption=caption,
-            parse_mode="HTML"
-        )
-
-    elif message.text:
-        text = message.text[len("/fb"):].strip()
-        if not text:
-            await message.reply("Пожалуйста, напишите текст после команды /fb.")
-            return
-
-        feedback_text = f"{caption}\n💬 Текст: {text}"
-        await bot.send_message(chat_id=FEEDBACK_CHAT_ID, text=feedback_text, parse_mode="HTML")
-
-    else:
-        await message.reply("⚠️ Неизвестный формат. Можно отправить текст или медиа.")
-
-    # Ставим реакцию
     try:
-        await bot.set_message_reaction(
-            chat_id=GROUP_ID,
-            message_id=message.message_id,
-            reaction=[ReactionTypeEmoji(emoji="✅")]
+        # Если есть фото — делаем пересылку с подтвёрждением
+        if message.photo:
+            photo = message.photo[-1]
+            await bot.send_photo(
+                chat_id=FEEDBACK_CHAT_ID,
+                photo=photo.file_id,
+                caption=media_caption,
+                parse_mode="HTML"
+            )
+            await bot.set_message_reaction(
+                chat_id=GROUP_ID,
+                message_id=message.message_id,
+                reaction=[ReactionTypeEmoji(emoji="✅")]
+            )
+            await message.reply("✅ Фото успешно отправлено модераторам!")
+
+        elif message.video:
+            video = message.video
+            await bot.send_video(
+                chat_id=FEEDBACK_CHAT_ID,
+                video=video.file_id,
+                caption=media_caption,
+                parse_mode="HTML"
+            )
+            await bot.set_message_reaction(
+                chat_id=GROUP_ID,
+                message_id=message.message_id,
+                reaction=[ReactionTypeEmoji(emoji="✅")]
+            )
+            await message.reply("✅ Видео успешно отправлено модераторам!")
+
+        elif message.text:
+            text = message.text[len("/fb"):].strip()
+            if not text:
+                await message.reply("Пожалуйста, напишите текст после команды /fb.")
+                return
+
+            feedback_text = f"{media_caption}\n💬 {text}"
+
+            await bot.send_message(chat_id=FEEDBACK_CHAT_ID, text=feedback_text, parse_mode="HTML")
+            await bot.set_message_reaction(
+                chat_id=GROUP_ID,
+                message_id=message.message_id,
+                reaction=[ReactionTypeEmoji(emoji="✅")]
+            )
+            await message.reply("✅ Ваш фидбек успешно отправлен модераторам!")
+
     except Exception as e:
-        logger.error(f"Не удалось поставить реакцию: {e}")
+        logger.error(f"Ошибка при обработке фидбека: {e}")
 
-    # Отправляем ответ
-    try:
-        await bot.send_message(
-            chat_id=GROUP_ID,
-            message_thread_id=message.message_thread_id,
-            text="✅ Ваш фидбек успешно отправлен модераторам!"
-        )
-    except Exception as e:
-        logger.error(f"Не удалось отправить ответ: {e}")
-
-
-# === Команда /say — публикация от имени бота (без уведомления об успехе) ===
+# === Команда /say — без уведомления об успехе ===
 @dp.message(Command("say"))
 async def handle_say(message: Message):
     admins = await get_admins(GROUP_ID)
@@ -138,6 +112,7 @@ async def handle_say(message: Message):
 
     try:
         await bot.send_message(chat_id=GROUP_ID, message_thread_id=topic_id, text=text)
+        # ❌ Убрано уведомление "сообщение опубликовано"
     except Exception as e:
         await message.reply(f"❌ Не удалось опубликовать сообщение: {e}")
 
@@ -145,7 +120,7 @@ async def handle_say(message: Message):
 # === Защита топика "Инфо" ===
 @dp.message()
 async def restrict_info_topic(message: Message):
-    if message.chat.id != GROUP_ID or message.message_thread_id != INFO_TOPIC_ID:
+    if message.chat.id != GROUP_ID or message.message_thread_id != os.getenv("INFO_TOPIC_ID"):
         return
 
     if message.from_user.is_bot:
@@ -172,21 +147,10 @@ async def get_admins(chat_id):
         return set()
 
 
-# === Запуск Flask и бота ===
+# === Запуск бота ===
 async def main():
     print("✅ Бот запущен")
-
-    # Запуск Flask сервера в отдельном потоке
-    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080))
-    flask_thread.start()
-
-    # Запуск keep-alive в отдельном потоке
-    keep_alive_thread = threading.Thread(target=keep_alive_loop)
-    keep_alive_thread.start()
-
-    # Запуск бота
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
