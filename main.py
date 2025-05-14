@@ -9,6 +9,7 @@ from aiogram.types import Message, ReactionTypeEmoji
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_ID = int(os.getenv("GROUP_ID"))
 FEEDBACK_CHAT_ID = int(os.getenv("FEEDBACK_CHAT_ID"))
+INFO_TOPIC_ID = int(os.getenv("INFO_TOPIC_ID"))
 ALLOWED_FB_TOPIC_ID = int(os.getenv("ALLOWED_FB_TOPIC_ID"))
 
 bot = Bot(token=BOT_TOKEN)
@@ -21,70 +22,69 @@ logger = logging.getLogger(__name__)
 # === Команда /fb — принимает текст и медиа ===
 @dp.message(Command("fb"))
 async def handle_feedback(message: Message):
-    # Проверяем, что сообщение в нужной группе и топике
     if message.chat.id != GROUP_ID or message.message_thread_id != ALLOWED_FB_TOPIC_ID:
         return
 
     user = message.from_user
-    media_caption = f"""
+    caption = f"""
 📥 <b>Новый фидбек</b>
 
-👤 Отправитель: {user.full_name} (@{user.username} | ID: {user.id})
-📌 Время отправки: {message.date.strftime('%Y-%m-%d %H:%M')}
+👤 Пользователь: {user.full_name} (@{user.username} | ID: {user.id})
+📌 Время: {message.date.strftime('%Y-%m-%d %H:%M')}
 """
 
-    try:
-        # Если есть фото — делаем пересылку с подтвёрждением
-        if message.photo:
-            photo = message.photo[-1]
-            await bot.send_photo(
-                chat_id=FEEDBACK_CHAT_ID,
-                photo=photo.file_id,
-                caption=media_caption,
-                parse_mode="HTML"
-            )
-            await bot.set_message_reaction(
-                chat_id=GROUP_ID,
-                message_id=message.message_id,
-                reaction=[ReactionTypeEmoji(emoji="✅")]
-            )
-            await message.reply("✅ Фото успешно отправлено модераторам!")
+    # Если есть фото — отправляем его
+    if message.photo:
+        photo = message.photo[-1]  # самое большое фото
+        await bot.send_photo(
+            chat_id=FEEDBACK_CHAT_ID,
+            photo=photo.file_id,
+            caption=caption,
+            parse_mode="HTML"
+        )
+        await bot.set_message_reaction(
+            chat_id=GROUP_ID,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji="✅")]
+        )
+        await message.reply("✅ Фото отправлено модераторам!")
 
-        elif message.video:
-            video = message.video
-            await bot.send_video(
-                chat_id=FEEDBACK_CHAT_ID,
-                video=video.file_id,
-                caption=media_caption,
-                parse_mode="HTML"
-            )
-            await bot.set_message_reaction(
-                chat_id=GROUP_ID,
-                message_id=message.message_id,
-                reaction=[ReactionTypeEmoji(emoji="✅")]
-            )
-            await message.reply("✅ Видео успешно отправлено модераторам!")
+    # Если есть видео — отправляем его
+    elif message.video:
+        video = message.video
+        await bot.send_video(
+            chat_id=FEEDBACK_CHAT_ID,
+            video=video.file_id,
+            caption=caption,
+            parse_mode="HTML"
+        )
+        await bot.set_message_reaction(
+            chat_id=GROUP_ID,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji="✅")]
+        )
+        await message.reply("✅ Видео отправлено модераторам!")
 
-        elif message.text:
-            text = message.text[len("/fb"):].strip()
-            if not text:
-                await message.reply("Пожалуйста, напишите текст после команды /fb.")
-                return
+    # Если текст — отправляем текст
+    elif message.text:
+        text = message.text[len("/fb"):].strip()
+        if not text:
+            await message.reply("Пожалуйста, напишите текст после команды /fb.")
+            return
 
-            feedback_text = f"{media_caption}\n💬 {text}"
+        feedback_text = f"{caption}\n💬 Текст: {text}"
+        await bot.send_message(chat_id=FEEDBACK_CHAT_ID, text=feedback_text, parse_mode="HTML")
+        await bot.set_message_reaction(
+            chat_id=GROUP_ID,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji="✅")]
+        )
+        await message.reply("✅ Ваш фидбек успешно отправлен модераторам!")
 
-            await bot.send_message(chat_id=FEEDBACK_CHAT_ID, text=feedback_text, parse_mode="HTML")
-            await bot.set_message_reaction(
-                chat_id=GROUP_ID,
-                message_id=message.message_id,
-                reaction=[ReactionTypeEmoji(emoji="✅")]
-            )
-            await message.reply("✅ Ваш фидбек успешно отправлен модераторам!")
+    else:
+        await message.reply("⚠️ Неподдерживаемый формат. Используйте текст, фото или видео.")
 
-    except Exception as e:
-        logger.error(f"Ошибка при обработке фидбека: {e}")
-
-# === Команда /say — без уведомления об успехе ===
+# === Команда /say — публикация от имени бота (без уведомления об успехе) ===
 @dp.message(Command("say"))
 async def handle_say(message: Message):
     admins = await get_admins(GROUP_ID)
@@ -112,15 +112,13 @@ async def handle_say(message: Message):
 
     try:
         await bot.send_message(chat_id=GROUP_ID, message_thread_id=topic_id, text=text)
-        # ❌ Убрано уведомление "сообщение опубликовано"
     except Exception as e:
         await message.reply(f"❌ Не удалось опубликовать сообщение: {e}")
-
 
 # === Защита топика "Инфо" ===
 @dp.message()
 async def restrict_info_topic(message: Message):
-    if message.chat.id != GROUP_ID or message.message_thread_id != os.getenv("INFO_TOPIC_ID"):
+    if message.chat.id != GROUP_ID or message.message_thread_id != INFO_TOPIC_ID:
         return
 
     if message.from_user.is_bot:
