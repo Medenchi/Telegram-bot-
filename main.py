@@ -1,9 +1,14 @@
 import os
 import asyncio
+import threading
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, ReactionTypeEmoji
+
+# === Логирование ===
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # === Настройки из переменных среды ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -15,9 +20,16 @@ ALLOWED_FB_TOPIC_ID = int(os.getenv("ALLOWED_FB_TOPIC_ID"))
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# === Логирование ===
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# === Flask для keep-alive ===
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Бот работает!"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))
 
 # === Команда /fb — принимает текст и медиа ===
 @dp.message(Command("fb"))
@@ -26,65 +38,46 @@ async def handle_feedback(message: Message):
         return
 
     user = message.from_user
-    caption = f"""
+    args = message.text[len("/fb"):].strip()
+    if not args:
+        await message.reply("Пожалуйста, напишите текст после команды /fb.")
+        return
+
+    feedback_text = f"""
 📥 <b>Новый фидбек</b>
 
 👤 Пользователь: {user.full_name} (@{user.username} | ID: {user.id})
+💬 Текст: {args}
 📌 Время: {message.date.strftime('%Y-%m-%d %H:%M')}
 """
 
-    # Если есть фото — отправляем его
-    if message.photo:
-        photo = message.photo[-1]  # самое большое фото
-        await bot.send_photo(
-            chat_id=FEEDBACK_CHAT_ID,
-            photo=photo.file_id,
-            caption=caption,
-            parse_mode="HTML"
-        )
+    try:
+        await bot.send_message(chat_id=FEEDBACK_CHAT_ID, text=feedback_text)
+    except Exception as e:
+        logger.error(f"Ошибка при отправке фидбека: {e}")
+
+    # Реакция
+    try:
         await bot.set_message_reaction(
             chat_id=GROUP_ID,
             message_id=message.message_id,
             reaction=[ReactionTypeEmoji(emoji="✅")]
         )
-        await message.reply("✅ Фото отправлено модераторам!")
+    except Exception as e:
+        logger.error(f"Не удалось поставить реакцию: {e}")
 
-    # Если есть видео — отправляем его
-    elif message.video:
-        video = message.video
-        await bot.send_video(
-            chat_id=FEEDBACK_CHAT_ID,
-            video=video.file_id,
-            caption=caption,
-            parse_mode="HTML"
-        )
-        await bot.set_message_reaction(
+    # Ответное сообщение
+    try:
+        await bot.send_message(
             chat_id=GROUP_ID,
-            message_id=message.message_id,
-            reaction=[ReactionTypeEmoji(emoji="✅")]
+            message_thread_id=message.message_thread_id,
+            text="✅ Ваш фидбек успешно отправлен модераторам!"
         )
-        await message.reply("✅ Видео отправлено модераторам!")
+    except Exception as e:
+        logger.error(f"Не удалось отправить ответ: {e}")
 
-    # Если текст — отправляем текст
-    elif message.text:
-        text = message.text[len("/fb"):].strip()
-        if not text:
-            await message.reply("Пожалуйста, напишите текст после команды /fb.")
-            return
 
-        feedback_text = f"{caption}\n💬 Текст: {text}"
-        await bot.send_message(chat_id=FEEDBACK_CHAT_ID, text=feedback_text, parse_mode="HTML")
-        await bot.set_message_reaction(
-            chat_id=GROUP_ID,
-            message_id=message.message_id,
-            reaction=[ReactionTypeEmoji(emoji="✅")]
-        )
-        await message.reply("✅ Ваш фидбек успешно отправлен модераторам!")
-
-    else:
-        await message.reply("⚠️ Неподдерживаемый формат. Используйте текст, фото или видео.")
-
-# === Команда /say — публикация от имени бота (без уведомления об успехе) ===
+# === Команда /say — публикация от имени бота ===
 @dp.message(Command("say"))
 async def handle_say(message: Message):
     admins = await get_admins(GROUP_ID)
@@ -145,9 +138,15 @@ async def get_admins(chat_id):
         return set()
 
 
-# === Запуск бота ===
+# === Запуск бота и Flask ===
 async def main():
     print("✅ Бот запущен")
+
+    # Запуск Flask в отдельном потоке
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
+
+    # Запуск бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
