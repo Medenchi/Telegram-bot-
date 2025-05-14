@@ -11,16 +11,16 @@ from aiogram.types import Message, ReactionTypeEmoji
 from flask import Flask
 from dotenv import load_dotenv
 
-# === Загружаем переменные из .env ===
+# === Загрузка переменных из .env ===
 load_dotenv()
 
 # === Настройки из .env ===
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Токен бота (строка)
-GROUP_ID = int(os.getenv("GROUP_ID"))  # Должно быть числом
-FEEDBACK_CHAT_ID = int(os.getenv("FEEDBACK_CHAT_ID"))  # Должно быть числом
-INFO_TOPIC_ID = int(os.getenv("INFO_TOPIC_ID"))  # Должно быть числом
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GROUP_ID = int(os.getenv("GROUP_ID"))
+FEEDBACK_CHAT_ID = int(os.getenv("FEEDBACK_CHAT_ID"))
+INFO_TOPIC_ID = int(os.getenv("INFO_TOPIC_ID"))
 
-# === Бот ===
+# === Бот и диспетчер ===
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
@@ -78,7 +78,7 @@ async def handle_feedback(message: Message):
     except Exception as e:
         logger.error(f"Ошибка при отправке фидбека: {e}")
 
-    # Ставим реакцию на исходное сообщение
+    # Ставим реакцию
     try:
         await bot.set_message_reaction(
             chat_id=GROUP_ID,
@@ -99,7 +99,7 @@ async def handle_feedback(message: Message):
         logger.error(f"Не удалось отправить ответ: {e}")
 
 
-# === Команда /say — публикация от имени бота ===
+# Команда /say — публикация от имени бота
 @dp.message(Command("say"))
 async def handle_say(message: Message):
     admins = await get_admins(GROUP_ID)
@@ -132,7 +132,7 @@ async def handle_say(message: Message):
         await message.reply(f"❌ Не удалось опубликовать сообщение: {e}")
 
 
-# === Защита топика "Инфо" ===
+# Защита топика "Инфо"
 @dp.message()
 async def restrict_info_topic(message: Message):
     if message.chat.id != GROUP_ID or message.message_thread_id != INFO_TOPIC_ID:
@@ -152,7 +152,7 @@ async def restrict_info_topic(message: Message):
         pass
 
 
-# === Получение списка администраторов группы ===
+# Получение списка администраторов группы
 async def get_admins(chat_id):
     try:
         admins = await bot.get_chat_administrators(chat_id)
@@ -167,11 +167,13 @@ async def main():
     print("✅ Бот запущен")
 
     # Запуск Flask сервера в отдельном потоке
-    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080)))
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080))
+    flask_thread.daemon = True
     flask_thread.start()
 
     # Запуск keep-alive в отдельном потоке
     keep_alive_thread = threading.Thread(target=keep_alive_loop)
+    keep_alive_thread.daemon = True
     keep_alive_thread.start()
 
     # Запуск бота
