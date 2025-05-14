@@ -159,15 +159,13 @@ async def get_admins(chat_id):
         return set()
 
 
-# === Запуск Flask и бота ===
-async def main():
-    print("✅ Бот запущен")
-
-    # Запуск Flask сервера в отдельном потоке
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))
-    )
-    flask_thread.start()
+# Запуск Flask сервера в отдельном потоке
+flask_thread = threading.Thread(
+    target=app.run,
+    kwargs={"host": "0.0.0.0", "port": int(os.getenv("PORT", 8080))}
+)
+flask_thread.daemon = True
+flask_thread.start()
 
     # Запуск keep-alive в отдельном потоке
     keep_alive_thread = threading.Thread(target=keep_alive_loop)
