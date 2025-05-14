@@ -6,9 +6,9 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # === Настройки ===
-BOT_TOKEN = 'YOUR_BOT_TOKEN'  # Замените на ваш токен
-TARGET_CHAT_ID = -1001234567890  # ID группы, где искать #ФБ
-NOTIFY_CHAT_ID = TARGET_CHAT_ID  # Куда отправлять уведомление
+BOT_TOKEN = '8124960394:AAFBpzmNFnl53Pjt-JE8y_S2CLb3ElpDcAo'  # Замените на ваш токен
+TARGET_CHAT_ID = -1002516656067  # ID группы, где искать #ФБ
+NOTIFY_CHAT_ID = -1002344286804  # Куда отправлять уведомление
 
 # === Логирование ===
 logging.basicConfig(
