@@ -29,10 +29,12 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # === Flask сервер для keep-alive запросов ===
 @app.route('/')
 def home():
     return "Бот работает!"
+
 
 # === Функция keep-alive (запускается в отдельном потоке) ===
 def keep_alive_loop():
@@ -46,6 +48,7 @@ def keep_alive_loop():
         except Exception as e:
             logger.error(f"❌ Ошибка при ping: {e}")
         time.sleep(60)  # Пинг каждую минуту
+
 
 # === Обработчики команд ===
 
@@ -75,7 +78,7 @@ async def handle_feedback(message: Message):
     except Exception as e:
         logger.error(f"Ошибка при отправке фидбека: {e}")
 
-    # Ставим реакцию
+    # Ставим реакцию на исходное сообщение
     try:
         await bot.set_message_reaction(
             chat_id=GROUP_ID,
@@ -159,13 +162,13 @@ async def get_admins(chat_id):
         return set()
 
 
-# Запуск Flask сервера в отдельном потоке
-flask_thread = threading.Thread(
-    target=app.run,
-    kwargs={"host": "0.0.0.0", "port": int(os.getenv("PORT", 8080))}
-)
-flask_thread.daemon = True
-flask_thread.start()
+# === Запуск Flask и бота ===
+async def main():
+    print("✅ Бот запущен")
+
+    # Запуск Flask сервера в отдельном потоке
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080)))
+    flask_thread.start()
 
     # Запуск keep-alive в отдельном потоке
     keep_alive_thread = threading.Thread(target=keep_alive_loop)
