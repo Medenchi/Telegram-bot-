@@ -1,14 +1,20 @@
+import os
 import logging
 import threading
+import asyncio
 
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
-# === Настройки ===
-BOT_TOKEN = '8124960394:AAFBpzmNFnl53Pjt-JE8y_S2CLb3ElpDcAo'  # Замените на ваш токен
-TARGET_CHAT_ID = -1002516656067  # ID группы, где искать #ФБ
-NOTIFY_CHAT_ID = -1002344286804  # Куда отправлять уведомление
+# === Загрузка переменных из .env (локально) ===
+from dotenv import load_dotenv
+load_dotenv()
+
+# === Настройки из env ===
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+FEEDBACK_CHAT_ID = int(os.getenv("FEEDBACK_CHAT_ID"))
+GROUP_ID = int(os.getenv("GROUP_ID"))
 
 # === Логирование ===
 logging.basicConfig(
@@ -21,8 +27,8 @@ async def check_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     chat = update.effective_chat
 
-    if chat.type not in ['group', 'supergroup']:
-        return
+    if chat.id != GROUP_ID:
+        return  # Игнорируем сообщения не из целевой группы
 
     text = message.text or ""
     
@@ -31,17 +37,19 @@ async def check_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         notification = f"📢 В группе обнаружен фидбэк!\n\n[Ссылка на сообщение]({link})"
         
         await context.bot.send_message(
-            chat_id=NOTIFY_CHAT_ID,
+            chat_id=FEEDBACK_CHAT_ID,
             text=notification,
             parse_mode="Markdown"
         )
 
 # === Инициализация и запуск бота в отдельном потоке ===
 def run_bot():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     handler = MessageHandler(filters.TEXT & ~filters.COMMAND, check_feedback)
     app.add_handler(handler)
-    app.run_polling()
+    loop.run_until_complete(app.run_polling())
 
 # === Flask сервер для "оживления" Render/хостинга ===
 app = Flask(__name__)
