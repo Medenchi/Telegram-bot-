@@ -1,47 +1,66 @@
 import os
 import asyncio
 import threading
+import time
+import requests
 import logging
+
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, ReactionTypeEmoji
+from flask import Flask
+from dotenv import load_dotenv
+
+# === Загружаем переменные из .env ===
+load_dotenv()
+
+# === Настройки из .env ===
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Токен бота (строка)
+GROUP_ID = int(os.getenv("GROUP_ID"))  # Должно быть числом
+FEEDBACK_CHAT_ID = int(os.getenv("FEEDBACK_CHAT_ID"))  # Должно быть числом
+INFO_TOPIC_ID = int(os.getenv("INFO_TOPIC_ID"))  # Должно быть числом
+
+# === Бот ===
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+app = Flask(__name__)
 
 # === Логирование ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === Настройки из переменных среды ===
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_ID = int(os.getenv("GROUP_ID"))
-FEEDBACK_CHAT_ID = int(os.getenv("FEEDBACK_CHAT_ID"))
-INFO_TOPIC_ID = int(os.getenv("INFO_TOPIC_ID"))
-ALLOWED_FB_TOPIC_ID = int(os.getenv("ALLOWED_FB_TOPIC_ID"))
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-# === Flask для keep-alive ===
-from flask import Flask
-app = Flask(__name__)
-
+# === Flask сервер для keep-alive запросов ===
 @app.route('/')
 def home():
     return "Бот работает!"
 
-def run_flask():
-    app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))
+# === Функция keep-alive (запускается в отдельном потоке) ===
+def keep_alive_loop():
+    project_url = f"https://{os.getenv('REPL_SLUG')}.{os.getenv('REPL_OWNER')}.replit.dev"
+    print(f"🔁 Keep-alive URL: {project_url}")
 
-# === Команда /fb — принимает текст и медиа ===
+    while True:
+        try:
+            response = requests.get(project_url)
+            logger.info(f"✅ Ping: {response.status_code} | {response.text[:20]}...")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при ping: {e}")
+        time.sleep(60)  # Пинг каждую минуту
+
+# === Обработчики команд ===
+
+# Команда /fb — отправляет фидбек в группу админов
 @dp.message(Command("fb"))
 async def handle_feedback(message: Message):
-    if message.chat.id != GROUP_ID or message.message_thread_id != ALLOWED_FB_TOPIC_ID:
+    if message.chat.id != GROUP_ID:
         return
 
-    user = message.from_user
     args = message.text[len("/fb"):].strip()
     if not args:
         await message.reply("Пожалуйста, напишите текст после команды /fb.")
         return
+
+    user = message.from_user
 
     feedback_text = f"""
 📥 <b>Новый фидбек</b>
@@ -56,7 +75,7 @@ async def handle_feedback(message: Message):
     except Exception as e:
         logger.error(f"Ошибка при отправке фидбека: {e}")
 
-    # Реакция
+    # Ставим реакцию
     try:
         await bot.set_message_reaction(
             chat_id=GROUP_ID,
@@ -66,7 +85,7 @@ async def handle_feedback(message: Message):
     except Exception as e:
         logger.error(f"Не удалось поставить реакцию: {e}")
 
-    # Ответное сообщение
+    # Отправляем ответ
     try:
         await bot.send_message(
             chat_id=GROUP_ID,
@@ -105,8 +124,10 @@ async def handle_say(message: Message):
 
     try:
         await bot.send_message(chat_id=GROUP_ID, message_thread_id=topic_id, text=text)
+        await message.reply("✅ Сообщение успешно опубликовано.")
     except Exception as e:
         await message.reply(f"❌ Не удалось опубликовать сообщение: {e}")
+
 
 # === Защита топика "Инфо" ===
 @dp.message()
@@ -128,26 +149,33 @@ async def restrict_info_topic(message: Message):
         pass
 
 
-# === Получение списка админов ===
+# === Получение списка администраторов группы ===
 async def get_admins(chat_id):
     try:
         admins = await bot.get_chat_administrators(chat_id)
         return {admin.user.id for admin in admins}
     except Exception as e:
-        logger.error(f"Не удалось получить администраторов: {e}")
+        logger.error(f"❌ Не удалось получить администраторов: {e}")
         return set()
 
 
-# === Запуск бота и Flask ===
+# === Запуск Flask и бота ===
 async def main():
     print("✅ Бот запущен")
 
-    # Запуск Flask в отдельном потоке
-    flask_thread = threading.Thread(target=run_flask)
+    # Запуск Flask сервера в отдельном потоке
+    flask_thread = threading.Thread(
+        target=lambda: app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080))
+    )
     flask_thread.start()
+
+    # Запуск keep-alive в отдельном потоке
+    keep_alive_thread = threading.Thread(target=keep_alive_loop)
+    keep_alive_thread.start()
 
     # Запуск бота
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
